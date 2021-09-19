@@ -11,7 +11,6 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   FirebaseAuth auth = FirebaseAuth.instance;
-  Future<UserCredential>? autenticado;
   bool _isPasswordVisible = false;
   String _email = "";
   String _password = "";
