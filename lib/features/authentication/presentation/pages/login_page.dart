@@ -12,8 +12,19 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   FirebaseAuth auth = FirebaseAuth.instance;
   bool _isPasswordVisible = false;
-  String _email = "";
-  String _password = "";
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  bool _loading = false;
+
+  bool _validateEmail = false;
+  bool _validatePassword = false;
+
+  var snackBar;
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -29,18 +40,37 @@ class _LoginPageState extends State<LoginPage> {
     super.initState();
   }
 
-  void signIn() {
-    auth
-        .signInWithEmailAndPassword(
-          email: _email,
-          password: _password,
-        )
-        .then(
-          (value) => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => HomePage()),
+  void signIn() async {
+    setState(() {
+      _loading = true;
+    });
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: _email.value.text, password: _password.value.text);
+      if (auth.currentUser != null) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomePage(),
           ),
         );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          _showMessage('No user found for that email.'),
+        );
+        print('No user found for that email.');
+      } else if (e.code == 'wrong-password') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          _showMessage('Wrong password provided for that user.'),
+        );
+        print('Wrong password provided for that user.');
+      }
+    }
+    setState(() {
+      _loading = false;
+    });
   }
 
   @override
@@ -83,28 +113,28 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 Container(
                   child: TextField(
+                    controller: _email,
                     decoration: InputDecoration(
+                      errorText:
+                          _validateEmail ? 'Value Can\'t Be Empty' : null,
                       labelText: "Email",
                       labelStyle: TextStyle(color: Colors.black),
                     ),
                     keyboardType: TextInputType.emailAddress,
-                    onChanged: (value) {
-                      _email = value;
-                    },
                   ),
                 ),
                 Stack(
                   children: [
                     TextField(
+                      controller: _password,
                       decoration: InputDecoration(
+                        errorText:
+                            _validatePassword ? 'Value Can\'t Be Empty' : null,
                         labelText: "Senha",
                         labelStyle: TextStyle(color: Colors.black),
                       ),
                       keyboardType: TextInputType.visiblePassword,
                       obscureText: _isPasswordVisible ? false : true,
-                      onChanged: (value) {
-                        _password = value;
-                      },
                     ),
                     Positioned(
                       right: 0.0,
@@ -134,20 +164,44 @@ class _LoginPageState extends State<LoginPage> {
                         MaterialStateProperty.all<Color>(Colors.black),
                   ),
                   onPressed: () {
-                    if (_email.isNotEmpty && _password.isNotEmpty) signIn();
+                    setState(() {
+                      _email.text.isEmpty
+                          ? _validateEmail = true
+                          : _validateEmail = false;
+                      _password.text.isEmpty
+                          ? _validatePassword = true
+                          : _validatePassword = false;
+                    });
+                    if (_email.text.isNotEmpty &&
+                        _password.text.isNotEmpty &&
+                        !_loading) signIn();
                   },
-                  child: Text(
-                    'Login',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                    ),
-                  ),
+                  child: !_loading
+                      ? Text(
+                          'Login',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                          ),
+                        )
+                      : CircularProgressIndicator(color: Colors.white),
                 ),
               ],
             ),
           ), // _ActionButtons(),
         ],
+      ),
+    );
+  }
+
+  SnackBar _showMessage(String message) {
+    return SnackBar(
+      content: Text(message),
+      action: SnackBarAction(
+        label: 'Undo',
+        onPressed: () {
+          // Some code to undo the change.
+        },
       ),
     );
   }

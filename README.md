@@ -31,3 +31,8 @@ Seu projeto será avaliado de acordo com os seguintes critérios.
 4. Qualidade e cobertura dos testes unitários.
 
 Adicionalmente, tentaremos verificar a sua familiarização com as bibliotecas padrões (standard libs), bem como sua experiência com programação orientada a objetos a partir da estrutura de seu projeto.
+
+# Credenciais
+
+Login: rafaellevissa@gmail.com
+Senha: senha123

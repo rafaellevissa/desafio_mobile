@@ -2,50 +2,69 @@ import 'dart:async';
 
 import 'package:desafio/features/authentication/presentation/pages/login_page.dart';
 import 'package:desafio/features/home/data/models/position.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:loading/loading.dart';
+import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:loading/indicator/ball_pulse_indicator.dart';
 import 'package:path/path.dart';
-import 'package:collection/collection.dart';
 
 class HomePage extends StatefulWidget {
   @override
   _HomePageState createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   User? user = FirebaseAuth.instance.currentUser;
   double _latitude = 0.0;
   double _longitude = 0.0;
   bool _loading = true;
 
-  @override
-  void initState() {
-    _determinePosition();
-    findAll();
-    super.initState();
-  }
+  late TabController _tabController;
 
-  Completer<GoogleMapController> _controller = Completer();
+  int _currentTab = 0;
+
+  final Completer<GoogleMapController> _controller = Completer();
 
   List<PositionUser>? listPositionUser = [];
 
   late CameraPosition _kGooglePlex;
 
-  late CameraPosition _kLake;
+  @override
+  void initState() {
+    super.initState();
+    _determinePosition();
+    findAll();
+    _tabController = TabController(vsync: this, length: 2);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   Future<void> _signOut(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => LoginPage()),
+    );
+  }
+
+  Future<void> _sendAnalyticsEvent(BuildContext context) async {
+    FirebaseAnalytics analytics = Provider.of<FirebaseAnalytics>(context);
+    await analytics.logEvent(
+      name: 'render_map',
+      parameters: <String, dynamic>{
+        'uuid': user!.uid,
+        'renderized': true,
+      },
     );
   }
 
@@ -79,24 +98,21 @@ class _HomePageState extends State<HomePage> {
           _longitude = position.longitude;
           _kGooglePlex = CameraPosition(
             target: LatLng(position.latitude, position.longitude),
-            zoom: 14.4746,
+            zoom: 17.151926040649414,
           );
-          _kLake = CameraPosition(
-              bearing: 192.8334901395799,
-              target: LatLng(position.latitude, position.longitude),
-              tilt: 59.440717697143555,
-              zoom: 19.151926040649414);
           _loading = false;
+          save(
+            user!.uid,
+            position.latitude.toString(),
+            position.longitude.toString(),
+          );
         },
       ),
     );
   }
 
-  Future<void> _goToTheLake() async {
+  Future<void> _goToThePosition() async {
     _determinePosition();
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.newCameraPosition(_kLake));
-    save(user!.uid, _latitude.toString(), _longitude.toString());
   }
 
   Future<Database> createDatabase() {
@@ -157,32 +173,54 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
 
+    if(!_loading) _sendAnalyticsEvent(context);
+
     return SafeArea(
       child: DefaultTabController(
         length: 2,
-        child: Scaffold(
-          appBar: AppBar(
-            bottom: TabBar(
-              tabs: [
-                Tab(icon: Icon(Icons.directions_car)),
-                Tab(icon: Icon(Icons.directions_transit)),
-              ],
-            ),
-          ),
-          backgroundColor: Colors.white,
-          body: TabBarView(
-            children: [
-              _buildTabMap(context, size),
-              _buildTabList(context, size),
-            ],
-          ),
-          floatingActionButton: !_loading
-              ? FloatingActionButton.extended(
-                  onPressed: _goToTheLake,
-                  label: Text('Go the positon'),
-                  icon: Icon(Icons.location_on),
-                )
-              : Container(),
+        child: Builder(
+          builder: (BuildContext context) {
+            final TabController tabController =
+                DefaultTabController.of(context)!;
+            tabController.addListener(() {
+              if (!tabController.indexIsChanging) {
+                setState(() {
+                  _currentTab = tabController.index;
+                });
+                if (tabController.index == 1) {
+                  findAll();
+                }
+              }
+            });
+            return Scaffold(
+              appBar: AppBar(
+                automaticallyImplyLeading: false,
+                bottom: TabBar(
+                  tabs: [
+                    Tab(icon: Icon(Icons.location_on)),
+                    Tab(icon: Icon(Icons.list)),
+                  ],
+                ),
+              ),
+              backgroundColor: Colors.white,
+              body: TabBarView(
+                physics: NeverScrollableScrollPhysics(),
+                children: [
+                  _buildTabMap(context, size),
+                  _buildTabList(context, size),
+                ],
+              ),
+              floatingActionButtonLocation:
+                  FloatingActionButtonLocation.startFloat,
+              floatingActionButton: !_loading && _currentTab == 0
+                  ? FloatingActionButton.extended(
+                      onPressed: _goToThePosition,
+                      label: Text('Get current position'),
+                      icon: Icon(Icons.location_on),
+                    )
+                  : Container(),
+            );
+          },
         ),
       ),
     );
@@ -225,6 +263,7 @@ class _HomePageState extends State<HomePage> {
         margin: EdgeInsets.only(left: 10, right: 10, bottom: 10),
         child: !_loading
             ? GoogleMap(
+                myLocationEnabled: true,
                 mapType: MapType.hybrid,
                 initialCameraPosition: _kGooglePlex,
                 onMapCreated: (GoogleMapController controller) {
@@ -236,10 +275,7 @@ class _HomePageState extends State<HomePage> {
             : Container(
                 color: Colors.white,
                 child: Center(
-                  child: Loading(
-                      indicator: BallPulseIndicator(),
-                      size: 100.0,
-                      color: Colors.blue),
+                  child: CircularProgressIndicator(color: Colors.blue),
                 ),
               ),
       ),
@@ -247,27 +283,34 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildTabList(BuildContext context, Size size) {
-    return Container(
-      height: size.height,
-      width: size.width,
-      child: Table(
-        defaultColumnWidth: FixedColumnWidth(150.0),
-        border: TableBorder(
-          horizontalInside: BorderSide(
-            color: Colors.black,
-            style: BorderStyle.solid,
-            width: 1.0,
+    return SingleChildScrollView(
+      child: Container(
+        height: size.height,
+        width: size.width,
+        margin: EdgeInsets.only(left: 15, right: 15),
+        child: Table(
+          border: TableBorder(
+            horizontalInside: BorderSide(
+              color: Colors.black,
+              style: BorderStyle.solid,
+              width: 1.0,
+            ),
+            verticalInside: BorderSide(
+              color: Colors.black,
+              style: BorderStyle.solid,
+              width: 1.0,
+            ),
           ),
-          verticalInside: BorderSide(
-            color: Colors.black,
-            style: BorderStyle.solid,
-            width: 1.0,
-          ),
+          children: [
+            _criarLinhaTable('ID, Latitude, Longitude'),
+            for (int i = 0; i < listPositionUser!.length; i++)
+              _criarLinhaTable(listPositionUser![i].uuid +
+                  "," +
+                  listPositionUser![i].latitude +
+                  "," +
+                  listPositionUser![i].longitude),
+          ],
         ),
-        children: [
-          _criarLinhaTable('ID, Latitude, Longitude'),
-          for(int i = 0;i<listPositionUser!.length;i++) _criarLinhaTable(listPositionUser![i].uuid + "," + listPositionUser![i].latitude + "," + listPositionUser![i].longitude),
-        ],
       ),
     );
   }
